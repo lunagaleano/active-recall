@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Active Recall</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--p:#4f46e5;--bg:#f5f6fb;--t:#1e2235;--m:#6b7280;--l:#e5e7eb}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--t)}
+button,input,select,textarea{font:inherit}
+.btn{border:0;background:var(--p);color:#fff;padding:9px 14px;border-radius:9px;cursor:pointer;transition:.15s}.btn:hover{opacity:.88}.btn:disabled{opacity:.5}
+.btn.g{background:#fff;color:var(--p);border:1px solid var(--l)}.btn.r{background:#dc2626}.btn.s{padding:5px 9px;font-size:13px}
+input,select,textarea{width:100%;padding:9px 11px;border:1px solid var(--l);border-radius:9px;background:#fff}
+input[type=color]{height:40px;padding:3px}
+label{display:block;font-size:13px;color:var(--m);margin:10px 0 4px}
+#auth{max-width:400px;margin:6vh auto;padding:26px;background:#fff;border-radius:16px;box-shadow:0 10px 40px #0001}
+#app{display:none;grid-template-columns:230px 1fr;min-height:100vh}
+nav{background:#fff;border-right:1px solid var(--l);padding:18px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+nav h1{font-size:19px;color:var(--p);margin:0 8px 18px}
+nav a{display:block;padding:10px 12px;border-radius:9px;cursor:pointer;color:var(--t);transition:.15s}nav a:hover{background:var(--bg)}nav a.on{background:var(--p);color:#fff}
+main{padding:24px;max-width:1100px;width:100%;animation:f .3s}@keyframes f{from{opacity:0;transform:translateY(6px)}}
+h2{margin:0 0 16px}
+.card{background:#fff;border:1px solid var(--l);border-radius:14px;padding:16px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.tag{font-size:12px;padding:2px 8px;border-radius:20px;color:#fff;white-space:nowrap}
+.bar{height:10px;background:var(--l);border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;transition:width .5s}
+.item{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--l);flex-wrap:wrap}
+.empty{text-align:center;color:var(--m);padding:28px}
+.alert{background:#fef3c7;border:1px solid #fcd34d;border-radius:12px;padding:10px 14px;margin-bottom:10px}
+.donut{width:120px;height:120px;border-radius:50%;display:grid;place-items:center}.donut b{background:#fff;width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-size:22px}
+#modal{position:fixed;inset:0;background:#0006;display:none;align-items:center;justify-content:center;padding:14px;z-index:9}#modal.on{display:flex}
+#modal>div{background:#fff;border-radius:16px;padding:22px;width:min(460px,100%);max-height:92vh;overflow:auto}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);padding:10px 16px;border-radius:10px;color:#fff;z-index:20;display:none}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:12px 0}
+.cal div{min-height:58px;background:#fff;border:1px solid var(--l);border-radius:8px;padding:4px;font-size:12px;cursor:pointer}
+.cal .h{min-height:0;border:0;background:none;text-align:center;color:var(--m);cursor:default}.cal .sel{outline:2px solid var(--p)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px}
+@media(max-width:800px){#app{display:block}nav{height:auto;position:static;display:flex;overflow-x:auto;gap:4px;padding:8px}nav h1{display:none}nav a{white-space:nowrap}main{padding:14px}.cal div{min-height:44px;padding:2px}}
+</style></head>
+<body>
+<div id="auth"></div>
+<div id="app"><nav id="nav"></nav><main id="main"></main></div>
+<div id="modal"><div></div></div><div id="toast"></div>
+<script>
+// ====== CONFIGURACIÓN: pegá acá tus datos de Supabase (Project Settings > API) ======
+const CFG={URL:'https://tczxsggjtgxhkvfsonjx.supabase.co',KEY:'sb_publishable_C_J2uyVZ9e6rpzsmjExrmg_xLjQ9_Ll'};
+// ==================================================================================
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const PR={baja:['Baja','#22c55e',1],media:['Media','#f59e0b',2],alta:['Alta','#ef4444',3]};
+const ES={pendiente:['Pendiente','#6b7280'],en_proceso:['En proceso','#3b82f6'],completada:['Completada','#16a34a']};
+const TY={examen:['Examen','#ef4444','📝'],entrega:['Entrega','#f59e0b','📤']};
+const NAV=[['inicio','🏠','Inicio'],['materias','📚','Mis materias'],['tareas','✅','Mis tareas'],['actividades','📝','Exámenes y entregas'],['calendario','📅','Calendario'],['recordatorios','🔔','Recordatorios'],['perfil','👤','Mi perfil'],['config','⚙️','Configuración']];
+const S={mat:[],tar:[],act:[],rec:[]},V={view:'inicio',f:{m:'',p:'',e:'',d:'',o:'fecha'},cm:'m',cd:null,sel:null};
+let U=null,P=null,sb=null,mode='login',notified=false;
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const pd=s=>{const[a,b,c]=s.split('-');return new Date(+a,b-1,+c)};
+const today=()=>iso(new Date());V.cd=today();
+const fm=s=>s?pd(s).toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}):'Sin fecha';
+function toast(m,err){const t=$('#toast');t.textContent=m;t.style.background=err?'#dc2626':'#16a34a';t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',3500)}
+const mat=id=>S.mat.find(m=>m.id==id);
+const mtag=id=>{const m=mat(id);return m?`<span class="tag" style="background:${esc(m.color)}">${esc(m.nombre)}</span>`:''};
+
+// ---------- Auth ----------
+function showAuth(){
+  $('#app').style.display='none';$('#auth').style.display='block';const reg=mode==='reg';
+  $('#auth').innerHTML=`<h1 style="color:var(--p);margin:0">🧠 Active Recall</h1><p style="color:var(--m)">${reg?'Creá tu cuenta':'Ingresá para organizar tu estudio'}</p>
+  <form id="af">${reg?'<label>Nombre</label><input name="nombre" required><label>Apellido</label><input name="apellido" required>':''}
+  <label>Correo electrónico</label><input name="email" type="email" required><label>Contraseña</label><input name="pass" type="password" minlength="6" required>
+  ${reg?'<label>Confirmar contraseña</label><input name="pass2" type="password" required>':''}
+  <button class="btn" style="width:100%;margin-top:16px">${reg?'Crear cuenta':'Ingresar'}</button></form>
+  <p style="text-align:center"><a href="#" id="sw">${reg?'Ya tengo cuenta':'Crear una cuenta nueva'}</a></p>`;
+  $('#sw').onclick=e=>{e.preventDefault();mode=reg?'login':'reg';showAuth()};
+  $('#af').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target)),b=e.target.querySelector('button'),txt=b.textContent;b.disabled=true;b.textContent='Cargando…';
+    try{
+      if(reg){
+        if(f.pass!==f.pass2)throw Error('Las contraseñas no coinciden');
+        const{data,error}=await sb.auth.signUp({email:f.email.trim(),password:f.pass,options:{data:{nombre:f.nombre.trim(),apellido:f.apellido.trim()}}});
+        if(error)throw error;
+        if(data.user&&data.user.identities&&!data.user.identities.length)throw Error('Ya existe una cuenta con ese correo');
+        if(!data.session){toast('Cuenta creada. Revisá tu correo para confirmarla y después ingresá.');mode='login';showAuth()}
+      }else{
+        const{error}=await sb.auth.signInWithPassword({email:f.email.trim(),password:f.pass});
+        if(error)throw Error(/Invalid/i.test(error.message)?'Correo o contraseña incorrectos':/confirm/i.test(error.message)?'Confirmá tu correo antes de ingresar':error.message);
+      }
+    }catch(er){toast(er.message,1);b.disabled=false;b.textContent=txt}
+  };
+}
+async function logout(){await sb.auth.signOut()}
+
+// ---------- Datos ----------
+async function boot(u){U=u;$('#auth').style.display='none';$('#app').style.display='';
+  $('#app').style.display=innerWidth>800?'grid':'block';$('#main').innerHTML='<div class="empty">Cargando…</div>';
+  await load();go(V.view);dueNotify()}
+async function load(){
+  const q=t=>sb.from(t).select('*');
+  const r=await Promise.all([q('profiles').eq('id',U.id).maybeSingle(),q('materias').order('created_at'),q('tareas').order('created_at'),q('actividades').order('fecha'),q('recordatorios').order('fecha_hora')]);
+  const e=r.find(x=>x.error);if(e)return toast('Error al cargar datos: '+e.error.message,1);
+  P=r[0].data||{nombre:'',apellido:'',email:U.email};[S.mat,S.tar,S.act,S.rec]=r.slice(1).map(x=>x.data);
+}
+async function db(t,o,id){
+  const r=id?await sb.from(t).update(o).eq('id',id):await sb.from(t).insert(o);
+  if(r.error){toast('No se pudo guardar: '+r.error.message,1);return false}
+  toast(id?'Cambios guardados':'Creado correctamente');await load();render();return true}
+async function del(t,id,msg){if(!confirm(msg))return;const r=await sb.from(t).delete().eq('id',id);
+  if(r.error)return toast('No se pudo eliminar: '+r.error.message,1);toast('Eliminado');await load();if(V.view=='mat'&&!mat(V.sel))V.view='materias';render()}
+
+// ---------- Formularios modales ----------
+function close(){$('#modal').classList.remove('on')}
+function form(title,fields,v,save){
+  const m=$('#modal');m.classList.add('on');
+  m.firstElementChild.innerHTML=`<h3 style="margin:0">${title}</h3><form>${fields.map(f=>`<label>${f.l}</label>`+(f.t=='select'?`<select name="${f.k}"${f.r?' required':''}>${f.o.map(o=>`<option value="${esc(o[0])}"${o[0]==(v[f.k]??'')?' selected':''}>${esc(o[1])}</option>`).join('')}</select>`:f.t=='area'?`<textarea name="${f.k}" rows="3">${esc(v[f.k])}</textarea>`:`<input name="${f.k}" type="${f.t||'text'}" value="${esc(v[f.k])}"${f.r?' required':''}>`)).join('')}
+  <div class="row" style="margin-top:16px"><button type="button" class="btn g" id="cx">Cancelar</button><button class="btn">Guardar</button></div></form>`;
+  $('#cx').onclick=close;
+  m.querySelector('form').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));for(const k in o)if(o[k]==='')o[k]=null;if(await save(o))close()}}
+const matOpts=()=>[['','Elegí una materia…'],...S.mat.map(m=>[m.id,m.nombre])];
+const needMat=()=>{if(S.mat.length)return 0;toast('Primero creá una materia',1);go('materias');return 1};
+function eMat(id){const v=S.mat.find(x=>x.id==id)||{color:'#4f46e5'};
+  form(id?'Editar materia':'Nueva materia',[{k:'nombre',l:'Nombre',r:1},{k:'descripcion',l:'Descripción (opcional)',t:'area'},{k:'color',l:'Color',t:'color'}],v,o=>db('materias',o,id))}
+function eTar(id){if(needMat())return;const v=S.tar.find(x=>x.id==id)||{prioridad:'media',estado:'pendiente',materia_id:V.view=='mat'?V.sel:''};
+  form(id?'Editar tarea':'Nueva tarea',[{k:'titulo',l:'Título',r:1},{k:'descripcion',l:'Descripción',t:'area'},{k:'materia_id',l:'Materia',t:'select',o:matOpts(),r:1},
+  {k:'prioridad',l:'Prioridad',t:'select',o:Object.entries(PR).map(([k,x])=>[k,x[0]])},{k:'estado',l:'Estado',t:'select',o:Object.entries(ES).map(([k,x])=>[k,x[0]])},{k:'fecha_limite',l:'Fecha límite',t:'date'}],
+  v,o=>db('tareas',{...o,updated_at:new Date().toISOString()},id))}
+function eAct(id){if(needMat())return;const v=S.act.find(x=>x.id==id)||{tipo:'examen',materia_id:V.view=='mat'?V.sel:''};
+  form(id?'Editar registro':'Nuevo examen o entrega',[{k:'titulo',l:'Nombre',r:1},{k:'tipo',l:'Tipo',t:'select',o:Object.entries(TY).map(([k,x])=>[k,x[0]])},{k:'materia_id',l:'Materia',t:'select',o:matOpts(),r:1},
+  {k:'descripcion',l:'Descripción',t:'area'},{k:'fecha',l:'Fecha',t:'date',r:1},{k:'hora',l:'Hora (opcional)',t:'time'}],{...v,hora:v.hora?v.hora.slice(0,5):''},o=>db('actividades',o,id))}
+const chg=(id,e)=>db('tareas',{estado:e,updated_at:new Date().toISOString()},id);
+function eRec(){
+  const opts=[['','Elegí una tarea, examen o entrega…'],...S.tar.filter(t=>t.fecha_limite&&t.estado!='completada').map(t=>['t:'+t.id,'✅ '+t.titulo+' ('+fm(t.fecha_limite)+')']),...S.act.map(a=>['a:'+a.id,TY[a.tipo][2]+' '+a.titulo+' ('+fm(a.fecha)+')'])];
+  if(opts.length<2)return toast('Primero creá una tarea con fecha límite, un examen o una entrega',1);
+  form('Nuevo recordatorio',[{k:'ref',l:'Actividad',t:'select',o:opts,r:1},{k:'dias',l:'Avisarme',t:'select',o:[['1','1 día antes'],['2','2 días antes'],['7','1 semana antes']]}],{dias:'1'},o=>{
+    const[k,id]=o.ref.split(':'),it=k=='t'?S.tar.find(x=>x.id==id):S.act.find(x=>x.id==id),d=pd(k=='t'?it.fecha_limite:it.fecha),n=+o.dias;
+    return db('recordatorios',{[k=='t'?'tarea_id':'actividad_id']:id,dias_antes:n,fecha_hora:new Date(d.getFullYear(),d.getMonth(),d.getDate()-n,9).toISOString()})})}
+
+// ---------- Vistas ----------
+const evs=()=>[...S.tar.filter(t=>t.fecha_limite).map(t=>({d:t.fecha_limite,tx:t.titulo,m:t.materia_id,done:t.estado=='completada',c:t.estado=='completada'?'#16a34a':'#3b82f6',k:'Tarea',h:''})),
+  ...S.act.map(a=>({d:a.fecha,tx:a.titulo,m:a.materia_id,c:TY[a.tipo][1],k:TY[a.tipo][0],h:a.hora?a.hora.slice(0,5):''}))];
+const evLine=e=>`<div class="item"><span><span class="dot" style="background:${e.c}"></span>${e.h} <b${e.done?' style="text-decoration:line-through;opacity:.6"':''}>${esc(e.tx)}</b> ${mtag(e.m)}</span><small>${e.k}${e.done?' ✔':''}</small></div>`;
+const tItem=t=>`<div class="item"><div style="flex:1;min-width:180px"><b style="${t.estado=='completada'?'text-decoration:line-through;opacity:.6':''}">${esc(t.titulo)}</b>
+  <div style="color:var(--m);font-size:13px">${esc(t.descripcion||'')}</div>
+  <div style="margin-top:4px">${mtag(t.materia_id)} <span class="tag" style="background:${PR[t.prioridad][1]}">${PR[t.prioridad][0]}</span> <small>📅 ${fm(t.fecha_limite)}${t.fecha_limite&&t.fecha_limite<today()&&t.estado!='completada'?' <b style="color:#dc2626">vencida</b>':''}</small></div></div>
+  <div class="row"><select style="width:auto" onchange="chg('${t.id}',this.value)">${Object.entries(ES).map(([k,v])=>`<option value="${k}"${k==t.estado?' selected':''}>${v[0]}</option>`).join('')}</select>
+  <button class="btn g s" onclick="eTar('${t.id}')">✏️ Editar</button><button class="btn r s" onclick="del('tareas','${t.id}','¿Eliminar esta tarea?')">🗑</button></div></div>`;
+const aItem=a=>`<div class="item"><div style="flex:1;min-width:180px"><b>${TY[a.tipo][2]} ${esc(a.titulo)}</b> <span class="tag" style="background:${TY[a.tipo][1]}">${TY[a.tipo][0]}</span>
+  <div style="color:var(--m);font-size:13px">${esc(a.descripcion||'')}</div><div style="margin-top:4px">${mtag(a.materia_id)} <small>📅 ${fm(a.fecha)}${a.hora?' · '+a.hora.slice(0,5)+' hs':''}</small></div></div>
+  <div class="row"><button class="btn g s" onclick="eAct('${a.id}')">✏️ Editar</button><button class="btn r s" onclick="del('actividades','${a.id}','¿Eliminar este registro?')">🗑</button></div></div>`;
+const hd=(t,b)=>`<div class="row" style="margin-bottom:14px"><h2 style="margin:0">${t}</h2>${b||''}</div>`;
+const emp=m=>`<div class="empty card">${m}</div>`;
+const itemOf=r=>r.tarea_id?S.tar.find(x=>x.id==r.tarea_id):S.act.find(x=>x.id==r.actividad_id);
+const dueRecs=()=>S.rec.filter(r=>{const it=itemOf(r);return r.estado=='pendiente'&&it&&new Date(r.fecha_hora)<=new Date()&&(it.fecha_limite||it.fecha)>=today()&&it.estado!='completada'});
+const alerts=()=>dueRecs().map(r=>{const it=itemOf(r);return `<div class="alert row">🔔 <span><b>${esc(it.titulo)}</b> vence ${fm(it.fecha_limite||it.fecha)}</span><button class="btn s" onclick="db('recordatorios',{estado:'vista'},'${r.id}')">Entendido</button></div>`}).join('');
+
+const views={
+inicio(){
+  const c=k=>S.tar.filter(t=>t.estado==k).length,tot=S.tar.length,pct=tot?Math.round(c('completada')/tot*100):0;
+  const prox=[...S.tar.filter(t=>t.fecha_limite&&t.estado!='completada').map(t=>({d:t.fecha_limite,tx:t.titulo,m:t.materia_id,k:'Tarea',c:'#3b82f6'})),
+    ...S.act.filter(a=>a.fecha>=today()).map(a=>({d:a.fecha,tx:a.titulo,m:a.materia_id,k:TY[a.tipo][0],c:TY[a.tipo][1]}))].sort((a,b)=>a.d<b.d?-1:1).slice(0,6);
+  const rec=[...S.tar].sort((a,b)=>b.updated_at>a.updated_at?1:-1).slice(0,5);
+  const bar=(k)=>`<div style="margin:8px 0"><div class="row"><small>${ES[k][0]}</small><b>${c(k)}</b></div><div class="bar"><i style="width:${tot?c(k)/tot*100:0}%;background:${ES[k][1]}"></i></div></div>`;
+  return `<h2>Hola, ${esc(P.nombre||'estudiante')} 👋</h2>${alerts()}
+  <div class="grid"><div class="card"><small>Pendientes</small><h1 style="margin:4px 0">${c('pendiente')}</h1></div><div class="card"><small>En proceso</small><h1 style="margin:4px 0">${c('en_proceso')}</h1></div><div class="card"><small>Completadas</small><h1 style="margin:4px 0">${c('completada')}</h1></div></div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+  <div class="card row" style="justify-content:space-around"><div class="donut" style="background:conic-gradient(#16a34a 0 ${pct}%,#e5e7eb 0)"><b>${pct}%</b></div><div style="flex:1;min-width:150px">${bar('pendiente')}${bar('en_proceso')}${bar('completada')}</div></div>
+  <div class="card"><h3 style="margin-top:0">Próximos vencimientos</h3>${prox.length?prox.map(p=>`<div class="item"><span><span class="dot" style="background:${p.c}"></span><b>${esc(p.tx)}</b> ${mtag(p.m)}</span><small>${p.k} · ${fm(p.d)}</small></div>`).join(''):'<div class="empty">No hay vencimientos próximos.</div>'}</div></div>
+  <div class="card"><h3 style="margin-top:0">Actividad reciente</h3>${rec.length?rec.map(t=>`<div class="item"><span><b>${esc(t.titulo)}</b> ${mtag(t.materia_id)}</span><small>${ES[t.estado][0]} · ${new Date(t.updated_at).toLocaleDateString('es-AR')}</small></div>`).join(''):'<div class="empty">Todavía no hay actividad. Creá tu primera tarea.</div>'}</div>`},
+materias(){return hd('Mis materias','<button class="btn" onclick="eMat()">+ Nueva materia</button>')+(S.mat.length?`<div class="grid">${S.mat.map(m=>`<div class="card" style="border-top:5px solid ${esc(m.color)}"><h3 style="margin:0 0 4px">📚 ${esc(m.nombre)}</h3><div style="color:var(--m);min-height:36px">${esc(m.descripcion||'Sin descripción')}</div><small>Creada el ${new Date(m.created_at).toLocaleDateString('es-AR')}</small>
+  <div class="row" style="margin-top:10px"><button class="btn s" onclick="V.sel='${m.id}';go('mat')">Abrir</button><button class="btn g s" onclick="eMat('${m.id}')">✏️</button><button class="btn r s" onclick="del('materias','${m.id}','¿Eliminar la materia y TODAS sus tareas, exámenes y entregas?')">🗑</button></div></div>`).join('')}</div>`:emp('Todavía no tenés materias. Creá tu primera materia para comenzar a organizarte.'))},
+mat(){const m=mat(V.sel),t=S.tar.filter(x=>x.materia_id==V.sel),a=S.act.filter(x=>x.materia_id==V.sel);if(!m)return views.materias();
+  return `<button class="btn g s" onclick="go('materias')">← Mis materias</button><div style="height:10px"></div>`+hd(`<span style="color:${esc(m.color)}">●</span> ${esc(m.nombre)}`,'<span><button class="btn s" onclick="eTar()">+ Tarea</button> <button class="btn s" onclick="eAct()">+ Examen/entrega</button></span>')+`<p style="color:var(--m)">${esc(m.descripcion||'')}</p>
+  <div class="card"><h3 style="margin-top:0">Tareas</h3>${t.length?t.map(tItem).join(''):'<div class="empty">Sin tareas en esta materia.</div>'}</div><div class="card"><h3 style="margin-top:0">Exámenes y entregas</h3>${a.length?a.map(aItem).join(''):'<div class="empty">Sin exámenes ni entregas.</div>'}</div>`},
+tareas(){const f=V.f,t0=today(),w=iso(new Date(Date.now()+7*864e5));
+  const sl=(k,o)=>`<select style="width:auto" onchange="V.f.${k}=this.value;render()">${o.map(([v,l])=>`<option value="${v}"${f[k]==v?' selected':''}>${l}</option>`).join('')}</select>`;
+  let l=S.tar.filter(t=>(!f.m||t.materia_id==f.m)&&(!f.p||t.prioridad==f.p)&&(!f.e||t.estado==f.e)&&(!f.d||(f.d=='sin'?!t.fecha_limite:f.d=='venc'?t.fecha_limite&&t.fecha_limite<t0&&t.estado!='completada':f.d=='hoy'?t.fecha_limite==t0:t.fecha_limite&&t.fecha_limite>=t0&&t.fecha_limite<=w)));
+  l.sort((a,b)=>f.o=='prio'?PR[b.prioridad][2]-PR[a.prioridad][2]:(a.fecha_limite||'9')<(b.fecha_limite||'9')?-1:1);
+  return hd('Mis tareas','<button class="btn" onclick="eTar()">+ Nueva tarea</button>')+`<div class="row" style="justify-content:flex-start;margin-bottom:12px">${sl('m',[['','Todas las materias'],...S.mat.map(m=>[m.id,m.nombre])])}${sl('p',[['','Toda prioridad'],...Object.entries(PR).map(([k,v])=>[k,v[0]])])}${sl('e',[['','Todo estado'],...Object.entries(ES).map(([k,v])=>[k,v[0]])])}${sl('d',[['','Todas las fechas'],['venc','Vencidas'],['hoy','Hoy'],['sem','Próximos 7 días'],['sin','Sin fecha']])}${sl('o',[['fecha','Ordenar: vencimiento'],['prio','Ordenar: prioridad']])}</div>`+
+  (l.length?`<div class="card">${l.map(tItem).join('')}</div>`:emp(S.tar.length?'Ninguna tarea coincide con los filtros.':'Todavía no tenés tareas. Creá tu primera tarea.'))},
+actividades(){const l=[...S.act].sort((a,b)=>a.fecha<b.fecha?-1:1);return hd('Exámenes y entregas','<button class="btn" onclick="eAct()">+ Nuevo</button>')+(l.length?`<div class="card">${l.map(aItem).join('')}</div>`:emp('Todavía no registraste exámenes ni entregas.'))},
+calendario(){const d=pd(V.cd),ev=evs(),on=x=>ev.filter(e=>e.d==x),m=V.cm;
+  const title=m=='m'?d.toLocaleDateString('es-AR',{month:'long',year:'numeric'}):m=='d'?d.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'}):'Semana del '+fm(iso(new Date(d.getFullYear(),d.getMonth(),d.getDate()-(d.getDay()+6)%7)));
+  const day=x=>{const l=on(x);return l.length?l.map(evLine).join(''):'<div class="empty">Sin actividades este día.</div>'};
+  let body='';
+  if(m=='d')body=`<div class="card">${day(V.cd)}</div>`;
+  if(m=='w'){const s=new Date(d.getFullYear(),d.getMonth(),d.getDate()-(d.getDay()+6)%7);body=Array.from({length:7},(_,i)=>{const x=iso(new Date(s.getFullYear(),s.getMonth(),s.getDate()+i));return `<div class="card"><b>${fm(x)}${x==today()?' (hoy)':''}</b>${day(x)}</div>`}).join('')}
+  if(m=='m'){const f=new Date(d.getFullYear(),d.getMonth(),1),off=(f.getDay()+6)%7,n=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+    body=`<div class="cal">${['L','M','X','J','V','S','D'].map(x=>`<div class="h">${x}</div>`).join('')}${'<span></span>'.repeat(off)}${Array.from({length:n},(_,i)=>{const x=iso(new Date(d.getFullYear(),d.getMonth(),i+1));return `<div class="${x==V.cd?'sel':''}" onclick="V.cd='${x}';render()"><b${x==today()?' style="color:var(--p)"':''}>${i+1}</b><br>${on(x).slice(0,4).map(e=>`<span class="dot" style="background:${e.c}"></span>`).join('')}</div>`}).join('')}</div><div class="card"><b>${fm(V.cd)}</b>${day(V.cd)}</div>`}
+  const md=(k,l)=>`<button class="btn ${m==k?'':'g'} s" onclick="V.cm='${k}';render()">${l}</button>`;
+  return hd('Calendario','<span>'+md('d','Día')+' '+md('w','Semana')+' '+md('m','Mes')+'</span>')+`<div class="row"><span><button class="btn g s" onclick="cgo(-1)">◀</button> <button class="btn g s" onclick="V.cd=today();render()">Hoy</button> <button class="btn g s" onclick="cgo(1)">▶</button></span><b style="text-transform:capitalize">${title}</b></div>${body}
+  <small><span class="dot" style="background:#3b82f6"></span>Tarea <span class="dot" style="background:#ef4444"></span>Examen <span class="dot" style="background:#f59e0b"></span>Entrega <span class="dot" style="background:#16a34a"></span>Completada</small>`},
+recordatorios(){return hd('Recordatorios','<button class="btn" onclick="eRec()">+ Nuevo recordatorio</button>')+alerts()+(S.rec.length?`<div class="card">${S.rec.map(r=>{const it=itemOf(r);return `<div class="item"><span>🔔 <b>${esc(it?it.titulo:'(eliminado)')}</b><br><small>${r.dias_antes==7?'1 semana':r.dias_antes+' día(s)'} antes · aviso desde ${new Date(r.fecha_hora).toLocaleDateString('es-AR')} · ${r.estado=='vista'?'visto':'pendiente'}</small></span><button class="btn r s" onclick="del('recordatorios','${r.id}','¿Eliminar este recordatorio?')">🗑</button></div>`}).join('')}</div>`:emp('Todavía no tenés recordatorios. Creá uno para que te avisemos antes de una fecha importante.'))+'<p style="color:var(--m);font-size:13px">Los avisos aparecen dentro de la plataforma cuando la abrís. Las notificaciones del navegador solo funcionan con la página abierta.</p>'},
+perfil(){return `<h2>Mi perfil</h2><form class="card" id="pf" style="max-width:460px"><label>Nombre</label><input name="nombre" value="${esc(P.nombre)}" required><label>Apellido</label><input name="apellido" value="${esc(P.apellido)}" required><label>Correo electrónico</label><input value="${esc(P.email||U.email)}" disabled><button class="btn" style="margin-top:16px">Guardar cambios</button></form>`},
+config(){const ok='Notification'in window&&Notification.permission=='granted';return `<h2>Configuración</h2><form class="card" id="pw" style="max-width:460px"><h3 style="margin-top:0">Cambiar contraseña</h3><label>Nueva contraseña</label><input name="a" type="password" minlength="6" required><label>Repetir contraseña</label><input name="b" type="password" required><button class="btn" style="margin-top:16px">Actualizar contraseña</button></form>
+  <div class="card" style="max-width:460px"><h3 style="margin-top:0">Notificaciones del navegador</h3><p style="color:var(--m)">Te avisan de los recordatorios mientras Active Recall esté abierto en el navegador.</p><button class="btn g" onclick="askNotif()">${ok?'Activadas ✔':'Activar notificaciones'}</button></div>
+  <div class="card" style="max-width:460px"><button class="btn r" onclick="logout()">Cerrar sesión</button></div>`}};
+function cgo(n){const d=pd(V.cd);V.cd=iso(V.cm=='m'?new Date(d.getFullYear(),d.getMonth()+n,1):new Date(d.getFullYear(),d.getMonth(),d.getDate()+n*(V.cm=='w'?7:1)))}
+async function askNotif(){if(!('Notification'in window))return toast('Tu navegador no admite notificaciones',1);const r=await Notification.requestPermission();toast(r=='granted'?'Notificaciones activadas':'Permiso no concedido',r!='granted');render()}
+function dueNotify(){if(notified||!('Notification'in window)||Notification.permission!='granted')return;notified=true;dueRecs().forEach(r=>{const it=itemOf(r);new Notification('Active Recall',{body:it.titulo+' vence '+fm(it.fecha_limite||it.fecha)})})}
+function go(v){V.view=v;render()}
+function render(){
+  const cur=V.view=='mat'?'materias':V.view,n=dueRecs().length;
+  $('#nav').innerHTML='<h1>🧠 Active Recall</h1>'+NAV.map(([k,i,l])=>`<a class="${k==cur?'on':''}" onclick="go('${k}')">${i} ${l}${k=='recordatorios'&&n?` <span class="tag" style="background:#ef4444">${n}</span>`:''}</a>`).join('')+'<a onclick="logout()">🚪 Cerrar sesión</a>';
+  $('#main').innerHTML=views[V.view]();
+  const pf=$('#pf');if(pf)pf.onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));o.nombre=o.nombre.trim();o.apellido=o.apellido.trim();
+    const r=await sb.from('profiles').update(o).eq('id',U.id);if(r.error)return toast(r.error.message,1);await sb.auth.updateUser({data:o});toast('Perfil actualizado');await load();render()};
+  const pw=$('#pw');if(pw)pw.onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));if(f.a!==f.b)return toast('Las contraseñas no coinciden',1);
+    const r=await sb.auth.updateUser({password:f.a});if(r.error)return toast(r.error.message,1);toast('Contraseña actualizada');e.target.reset()};
+}
+
+// ---------- Inicio ----------
+if(CFG.URL.startsWith('TU_')){$('#auth').innerHTML='<h2>⚙️ Falta configurar Supabase</h2><p>Abrí <code>index.html</code> y completá <code>CFG.URL</code> y <code>CFG.KEY</code> con los datos de tu proyecto. Los pasos están en el README.</p>'}
+else{sb=supabase.createClient(CFG.URL,CFG.KEY);
+  sb.auth.onAuthStateChange((ev,ses)=>{ if(ses){if(!U||U.id!==ses.user.id)setTimeout(()=>boot(ses.user),0)}else{U=null;showAuth()} })}
+</script></body></html>
